@@ -1,5 +1,11 @@
-/* github link
+/* 
   Programmed by: Antonio Rehwinkel
+
+  Funktionsweise neben den funktionen erklärt. volle Arbeitsweise steht bei der funktion gedruckt()
+  bei schreiben neuer funktionen einfügen in chooseProg und text verändern in write_Prog
+  bei schreiben darauf achten zeitabhängige sachen per millis zu machen. Kein delay benutzen / nur im notfall delay benutzen
+  millis timer googlen!
+  
   Used:
        Arduino Uno
        DFPlayer Mini
@@ -27,32 +33,46 @@
     wackelkontakt --> bei rütteln geht MP3-Modul aus und nächster song spielt
       
 */
-
+/-----------------------------------
+/*
+ * Temperatur sensor samt werte speicher
+ */
 #include "DHT.h"
 #define DHTPIN 8
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 float Temperatur;
 //-------------------------
+/*
+ * Variablen für den MP3-Player.
+ * benötigt für zeitliche einordnugn aller lieder + pause/stop oder den zufallsmodus
+ * zufallsmodus hat sicherung um zwei mal die selbe Zahl nacheinander zu vermeiden
+ */
 #include "Arduino.h"
 #include "SoftwareSerial.h"
 #include "DFRobotDFPlayerMini.h"
 SoftwareSerial mySoftwareSerial(11, 12); // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
 void printDetail(uint8_t type, int value);
-
+/*
+ * Zufallsmodus
+ */
 int sec = 50;
 int MusikRand = 0;
 int MusikRandAlt = 0;
 long RandZeit = 0;
 long twomin = 0; //120000
 long randTimer = 0;
-
+/*
+ * MusikOrdner
+ */
 int xMasOrd = 0;
 int halloweenOrd = 0;
 int voiceOrd = 0;
 int currentFile = 0;
-
+/*
+ * 
+ */
 int halloween = 1;
 int xMas = 2;
 int voice = 3;
@@ -65,9 +85,15 @@ int minWarten = 1000;
 int ifCaseRun = true;
 int indexGL;
 //-------------------------
+/*
+ * Licht resister samt werte speicher
+ */
 #define pResistor A3
 int Licht;
 //-------------------------
+/*
+ * LCD-Display mit farbsteuerung
+ */
 #include <Wire.h>
 #include "rgb_lcd.h"
 
@@ -77,14 +103,23 @@ int colorR = 0;
 int colorG = 0;
 int colorB = 0;
 //-------------------------
+/*
+ * PWM-Lampe 
+ */
 #define Lampe 10
 boolean debugLampe = false;
 int Leuchtkraft = 0;
 //-------------------------
+/*
+ * Timer
+ */
 long Zeit;
 long vergangeneZeit = 0 ;
 //long vergangeneZeitMusik = 0;
 //-------------------------
+/*
+ * Joystick
+ */
 #define VrX  A0
 #define VrY  A1
 const byte interruptPin = 2;
@@ -96,6 +131,9 @@ int runnonce = 0;
 int buttonstate = 0;
 int i  = 0;
 //-----------------------
+/*
+ * Menu
+ */
 boolean FlascheOnOff = false;
 int Programm = 0;
 int chosenProg = 9;
@@ -105,13 +143,18 @@ String Programms[] = { "FlascheDIM", "FlascheONOFF", "TempAndHum", "Lichtwert", 
 
 //-------------------------------------------------------------------------------------setup
 void setup() {
- lcd.begin(16, 2);
+  //init LCD
+ lcd.begin(16, 2);   
   // lcd.setRGB(colorR, colorG, colorB);
   lcd.setCursor(0, 0);
   lcd.print("Loading...");
+  
+  randomSeed(A4);   //set Seed for random (true random möglich)
 
-  randomSeed(A4);
-
+  /*
+   * DFPlayerMini code 
+   * wenn nicht vorhanden dann stürzt hier das Programm ab
+   */
   mySoftwareSerial.begin(9600);
   Serial.begin(115200);
   Serial.println(F("DFRobot DFPlayer Mini Demo"));
@@ -147,55 +190,68 @@ void setup() {
 
   //Serial.begin(9600);
 
-  dht.begin();
+  dht.begin(); //temp sensor init
 
-  pinMode(interruptPin, INPUT_PULLUP);
+  pinMode(interruptPin, INPUT_PULLUP);  //interrupt für Joystick btn || interupt ruft die angegebene Funktion auf, wenn wert erreicht (für mich wenn btn gedrückt)
   attachInterrupt(digitalPinToInterrupt(interruptPin), gedruckt, CHANGE);
 
-  pinMode(pResistor, INPUT);
+  pinMode(pResistor, INPUT);  // init licht resistor
   delay(2000); //Zwei Sekunden Vorlaufzeit bis zur Messung (der Sensor ist etwas träge)
 }
 //-------------------------------------------------------------------------------------loop
 void loop() {
-  while (gedrucktbool) {
+  while (gedrucktbool) { //wenn knopf des joysticks gedrückt
 
     //myDFPlayer.pause();
-    Menu();
+    Menu();             //öffne das menü
     // debug();
-    chooseProgRunOnce = false;
+    chooseProgRunOnce = false; //setze falsch das ein programm ausgewählt wurde
   }
 
-  if (!chooseProgRunOnce) {
+  if (!chooseProgRunOnce) { //wenn programm noch nicht gelaufen dann clear zuerst das LCD || alter text verschwindet (hatte probleme mit überlagerungen)
     lcd.clear();
   }
 
-  if (!gedrucktbool) {
+  if (!gedrucktbool) {  //wenn joystick gedrückt dann öffne das programm um ein Programm zu starten (xD)
 
     choose_Prog();
   }
-  runonce = true;
+  runonce = true; //das prohjekt ist einmal durchgelaufen (Wichtig für menu() )
   //debug();
 }
 //-------------------------------------------------------------------------------------Menu
-void gedruckt() {
+/*
+ * der joystick wurde gedrückt, 
+ */
+void gedruckt() { 
   i = 0;
-  buttonstate =  digitalRead(interruptPin);
+  buttonstate =  digitalRead(interruptPin); 
 
-
-  if (runnonce == 0 && buttonstate == LOW) {
-    gedrucktbool = true;
-    myDFPlayer.pause();
-    runnonce = 1;
-    twomin = 0;
-   
+/*
+ * case switch für runonce + abdeckung verschiedener programm fälle die vorher gelaufen sein könnten
+ * durch runnonce wird sichergestellt das das menu beim starten offen ist
+ * 
+ * knopf wird das erste mal gedrückt --> erste if verknüpfung geht auf (noch nicht gelaufen und btn losgelassen)
+ * setze gedrucktbool war, dadurch wird das menu geöffnet. Hier kann der Spieler seine Programme auswählen und laufen lassen
+ * 
+ * wird der knopf ein weiteres mal gedrückt, so setze gerucktbool auf false
+ * das menu schliest sich über dem letzen ausgewähltem programm (siehe write_prog() / choose_Prog() oder Menu()
+ * 
+ * da gedrucktbool falsch ist starte das ausgewählte programm!
+ */
+  if (runnonce == 0 && buttonstate == LOW) {  //wenn das programm noch nicht lief(zB beim start des arduinos) und der btn losgelassen(debounce) wurde dann 
+    gedrucktbool = true;  // knopf gedrückt war
+    myDFPlayer.pause();   //pausiere den MP3Player (im menu nur nervig)
+    runnonce = 1;         //das programm lief (siehe menu())
+    twomin = 0;           //?
   }
-  else if (runnonce == 1 && buttonstate == LOW) {
-    gedrucktbool = false;
+  else if (runnonce == 1 && buttonstate == LOW) { //das programm ist schon einmal gelaufen und der btn losgelassen(debounce) dann
+    gedrucktbool = false; // es wurde noch nicht gedrückt == enter choose_prog (siehe loop)
 
-    runnonce = 0;
+    runnonce = 0; //das programm lief noch nicht == enter menu
   }
 
-  while (buttonstate == LOW) {
+  while (buttonstate == LOW) { // weiterer debounce
     i++;
     delay(10);
     buttonstate =  digitalRead(interruptPin);
@@ -205,21 +261,24 @@ void gedruckt() {
 
 }
 //----------------------------------------
+/*
+ * Menu um programm auszuwählen. write_Prog um zu scrollen
+ */
 void Menu() {
 
-  if (runonce) {
-    lcd.clear();
+  if (runonce) { // programm ist noch nicht gelaufen 
+    lcd.clear();    
     lcd.setCursor(0, 0);
-    lcd.print("Menu");
+    lcd.print("Menu"); //zeige an das menu geöffnet
     runonce = false;
   }
 
-  VrYVar = analogRead(VrY);
+  VrYVar = analogRead(VrY); //lese axen des joysticks
 
-  if (VrYVar > 900) {
-    Write_Prog();
+  if (VrYVar > 900) { //joystick nach unten
+    Write_Prog(); //scroll nach unten mit anzeige der auszuwählenden programme auf dem bildschirm
     // debug();
-    while (VrYVar > 900) {
+    while (VrYVar > 900) {  //während jyostick noch unten warte (debounce)
       VrYVar = analogRead(VrY);
       delay(10);
       //debug();
@@ -227,7 +286,10 @@ void Menu() {
   }
 }
 //----------------------------------------
-void choose_Prog() {
+/*
+ * das im Menu/write_prog gewählte Programm wird hier ausgewählt und ausgeführt
+ */
+void choose_Prog() { 
 
   /*
      lcd.setCursor(0,0);
@@ -242,7 +304,7 @@ void choose_Prog() {
   // if (VrXVar > 900) {
   //lcd.clear();
 
-  switch (chosenProg) {
+  switch (chosenProg) { // von write prog gesetzt wenn der interrupt skipt, so wird ausgweählt und hier ausgeführt
 
     case 0:
       Flasche_DIM();
@@ -288,6 +350,11 @@ void choose_Prog() {
   chooseProgRunOnce = true;
 }
 //----------------------------------------
+/*
+ * Programm stellt die Position in der Liste dar.
+ * je nach dem wie weit gescrollt wurde, zeigt Write_Prog das entsprechende Programm zur auswahl an.
+ * Wird mit dem Joystick btn bestätigt skippt der Interrupt den while loop des menu. Somit gilt die Zahl des letzen heir geöffnetem Programm als gewähltem programm
+ */
 void Write_Prog() {
   switch (Programm) {
     case 0:
@@ -393,6 +460,9 @@ void Write_Prog() {
   }
 }
 //----------------------------------------
+/*
+ * falls kein programm gewählt (nach boot zB)
+ */
 void no_Prog() {
   digitalWrite(Lampe, LOW);
   lcd.setCursor(0, 0);
@@ -401,6 +471,11 @@ void no_Prog() {
   lcd.print("Choose Programm");
   //  Serial.println("Programm");
 }
+
+//-------------------------------------------------------------------------------------Programme
+/*
+ * Hier stehen die Programme die ausgeführt werden können. Diese stehen in WriteProg zum scrollen und in choose_prog zum ausführen dabei
+ */
 //-------------------------------------------------------------------------------------Sensorik
 void  Flasche_DIM() {
   Licht = analogRead(pResistor);
